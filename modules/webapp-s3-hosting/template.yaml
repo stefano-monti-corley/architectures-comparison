@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Static pages distribution
+Parameters:
+  SubDomain:
+    Type: String
+    Description: parameter
+  BucketName:
+    Type: String
+    Default: ""
+    Description: You bucket name
+  Certificate:
+    Type: String
+    Description: US (East Virginia) SSL Certificate ARN
+  PublicHostedZone:
+    Type: String
+    Default: ""
+    Description: Public Domain Name and Route53 Hosted Zone (for DNS Target Alias)
+
+Resources:
+
+  # CloudfrontDistribution:
+  #   Type: "AWS::CloudFront::Distribution"
+  #   DependsOn: S3Bucket
+  #   Properties:
+  #     DistributionConfig:
+  #       Aliases:
+  #         - !Sub '${SubDomain}.${PublicHostedZone}'
+  #       Origins:
+  #         - DomainName: !Sub ${S3Bucket.DomainName}
+  #           Id: !Ref BucketName
+  #           OriginAccessControlId: !GetAtt CloudfrontOriginAccessControl.Id
+  #           S3OriginConfig:
+  #             OriginAccessIdentity: ''
+  #       Enabled: true
+  #       HttpVersion: 'http2'
+  #       Comment: Web App Distribution
+  #       CustomErrorResponses:
+  #         - ErrorCachingMinTTL: 60
+  #           ErrorCode: 403
+  #           ResponseCode: 200
+  #           ResponsePagePath: /index.html
+  #       DefaultRootObject: index.html
+  #       DefaultCacheBehavior:
+  #         AllowedMethods:
+  #           - DELETE
+  #           - GET
+  #           - HEAD
+  #           - OPTIONS
+  #           - PATCH
+  #           - POST
+  #           - PUT
+  #         TargetOriginId: !Ref BucketName
+  #         SmoothStreaming: false
+  #         MinTTL: 0
+  #         MaxTTL: 0
+  #         DefaultTTL: 0
+  #         ForwardedValues:
+  #           QueryString: true
+  #           Cookies:
+  #             Forward: all
+  #         ViewerProtocolPolicy: redirect-to-https
+  #       CacheBehaviors: []
+  #       PriceClass: PriceClass_100
+  #       ViewerCertificate:
+  #         AcmCertificateArn: !Ref Certificate
+  #         MinimumProtocolVersion: 'TLSv1.1_2016'
+  #         SslSupportMethod: sni-only
+
+  S3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  S3WebsitePolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:GetObject"
+            Resource:
+              - !Sub ${S3Bucket.Arn}/*
+            Principal:
+                Service: cloudfront.amazonaws.com
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudfrontDistribution.Id}
+          # - Effect: Allow
+          #   Action:
+          #     - "s3:GetObject"
+          #   Resource:
+          #     - !Sub ${S3Bucket.Arn}/*
+          #   Principal:
+          #     CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+
+  # CloudFrontOriginAccessIdentity:
+  #   Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+  #   Properties:
+  #     CloudFrontOriginAccessIdentityConfig:
+  #       Comment: !Sub  "${SubDomain}-static-access-identity"
+
+  CloudfrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig: 
+          Description: CloudfrontOriginAccessControl
+          Name: CloudfrontOriginAccessControl
+          OriginAccessControlOriginType: s3
+          SigningBehavior: always
+          SigningProtocol: sigv4
+
+
+  Route53RecordSetGroup:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneName: !Sub '${PublicHostedZone}.'
+      RecordSets:
+      - Name: !Sub '${SubDomain}.${PublicHostedZone}'
+        Type: 'A'
+        AliasTarget:
+          DNSName: !GetAtt 'CloudfrontDistribution.DomainName'
+          EvaluateTargetHealth: false
+          # The  following HosteZoneId is always used for alias records pointing to CF.
+          HostedZoneId: 'Z2FDTNDATAQYW2'

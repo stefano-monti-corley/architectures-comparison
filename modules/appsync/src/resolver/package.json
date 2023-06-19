@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@aws-appsync/utils": "^1.2.5"
+  }
+}

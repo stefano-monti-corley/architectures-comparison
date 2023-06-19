@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  ivg-fastlane-webapp-be
+
+  Sample SAM Template for ivg-fastlane-webapp-be
+  
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Parameters:
+  SubDomain:
+    Type: String
+    Description: parameter
+  BucketName: 
+    Type: String
+    Description: paramenter
+  Certificate: 
+    Type: String
+    Description: paramenter
+  PublicHostedZone: 
+    Type: String
+    Description: paramenter
+
+Resources:
+
+  #4
+  ApiStack:
+    Type: AWS::Serverless::Application
+    Properties: 
+      Location: ./modules/api/template.yaml
+
+  #5
+  EcsStack:
+    Type: AWS::Serverless::Application
+    Properties: 
+      Location: ./modules/ecs/template.yaml
+
+
+  AppSyncStack:
+    Type: AWS::Serverless::Application
+    Properties: 
+      Location: ./modules/appsync/template.yaml
+
+  
+  # WebappS3HostingStack:
+  #   Type: AWS::Serverless::Application
+  #   Properties: 
+  #     Location: ./modules/webapp-s3-hosting/template.yaml
+  #     Parameters:
+  #       SubDomain: !Ref SubDomain
+  #       BucketName: !Ref BucketName 
+  #       Certificate: !Ref Certificate 
+  #       PublicHostedZone: !Ref PublicHostedZone 
+
+        

@@ -1,0 +1,16 @@
+schema {
+    query: Query
+}
+
+type Query {
+    getAllFuelCompsuntion: [FuelConsumpion]
+}
+
+
+type FuelConsumpion {
+    vin: ID!
+    date: AWSDateTime
+    fuelconsumption: Float
+}
+
+

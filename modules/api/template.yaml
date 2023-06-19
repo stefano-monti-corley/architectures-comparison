@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  ivg-fastlane-webapp-be
+
+  Sample SAM Template for ivg-fastlane-webapp-be
+  
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 30
+
+Parameters:
+  VPCID:
+    Type: String
+    Default: vpc-0bb2c243192f84787
+  PrivateSubnetId:
+    Type: String
+    Default: subnet-0726cf0961bf6e7e8
+  PublicSubnetId:
+    Type: String
+    Default: subnet-0222d34e6297a9c1b
+
+Resources:
+
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Cors:
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowMethods: "'GET'"
+        AllowOrigin: "'*'"
+
+  # CloudfrontDistribution:
+  #   DependsOn: ApiGateway
+  #   Type: AWS::CloudFront::Distribution
+  #   Properties:
+  #     DistributionConfig:
+  #       Origins:
+  #       - Id: APIGatewayorigin
+  #         DomainName: !Sub ${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com
+  #         CustomOriginConfig:
+  #           HTTPSPort: 443
+  #           OriginProtocolPolicy: https-only
+  #           OriginSSLProtocols: 
+  #             - TLSv1.2
+  #         OriginPath: /dev
+  #       Enabled: true
+  #       Comment: Push channel search
+  #       PriceClass: PriceClass_100
+  #       DefaultCacheBehavior:
+  #         AllowedMethods:
+  #         - GET
+  #         - HEAD
+  #         - OPTIONS
+  #         CachedMethods:
+  #         - HEAD
+  #         - GET
+  #         ForwardedValues:
+  #           QueryString: true
+  #           Headers: []
+  #           Cookies:
+  #             Forward: none
+  #         MinTTL: '0'
+  #         TargetOriginId: APIGatewayorigin
+  #         ViewerProtocolPolicy: https-only
+  #       CustomErrorResponses: []
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup      
+    Properties:
+      VpcId: !Ref VPCID
+      GroupDescription: for lambda
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+
+
+  HelloWorldFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: ./src/lambdas/hello-world/
+      Handler: app.lambdaHandler
+      Runtime: nodejs18.x
+      Policies:
+        - Statement:
+          - Effect: Allow
+            Action:
+              - rds:*
+            Resource: "*"
+      Architectures:
+        - x86_64
+      Events:
+        Hello:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /{proxy+}
+            Method: any
+      VpcConfig:
+        SecurityGroupIds: 
+          - !Ref LambdaSecurityGroup
+        SubnetIds: 
+          - !Ref PrivateSubnetId
+          - !Ref PublicSubnetId
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        Sourcemap: true
+        EntryPoints: 
+        - app.ts
+
+
+
+
+        
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  HelloWorldApi:
+    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+  HelloWorldFunction:
+    Description: "Hello World Lambda Function ARN"
+    Value: !GetAtt HelloWorldFunction.Arn
+  HelloWorldFunctionIamRole:
+    Description: "Implicit IAM Role created for Hello World function"
+    Value: !GetAtt HelloWorldFunctionRole.Arn

@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: AppSync Template for a Realtime App
+
+Parameters:
+  graphQLAPIName:
+    Type: String
+    Description: The name for the AppSync GraphQL API to be created.
+    Default: My Realtime App
+    MinLength: "1"
+    MaxLength: "32"
+
+
+Resources:
+
+
+  DataSourceDataPointTableRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: appsync.amazonaws.com
+      Policies:
+        - PolicyName: DataSourcePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - '*'
+                Resource:
+                  - !Sub "*"
+
+  AppSyncSampleAPI:
+    Type: "AWS::AppSync::GraphQLApi"
+    Properties:
+      Name: !Sub ${graphQLAPIName}
+      AuthenticationType: "API_KEY"
+
+  AppSyncSampleSchema:
+    Type: "AWS::AppSync::GraphQLSchema"
+    DependsOn:
+      - AppSyncSampleAPI
+    Properties:
+      ApiId: !GetAtt AppSyncSampleAPI.ApiId
+      DefinitionS3Location: ./src/schema.graphql
+
+  AppSyncApiKey:
+    Type: AWS::AppSync::ApiKey
+    Properties: 
+      ApiId: !GetAtt AppSyncSampleAPI.ApiId
+
+  AppSyncRedDataSource:
+    Type: "AWS::AppSync::DataSource"
+    DependsOn:
+      - AppSyncSampleAPI
+    Properties:
+      ApiId: !GetAtt AppSyncSampleAPI.ApiId
+      Name: RDSDatasource
+      Description: RDS Datasource
+      ServiceRoleArn: !GetAtt DataSourceDataPointTableRole.Arn
+      Type: RELATIONAL_DATABASE
+      RelationalDatabaseConfig:
+        RdsHttpEndpointConfig: 
+            AwsRegion: !Ref AWS::Region
+            AwsSecretStoreArn: arn:aws:secretsmanager:eu-central-1:327465495978:secret:appsync-aurora-secret-2AVNJy
+            DatabaseName: fastlane
+            DbClusterIdentifier: arn:aws:rds:eu-central-1:327465495978:cluster:aurora-fastlane2-poc
+        RelationalDatabaseSourceType: RDS_HTTP_ENDPOINT
+
+  QueryGetPostResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: AppSyncSampleSchema
+    Properties:
+      ApiId: !GetAtt AppSyncSampleAPI.ApiId
+      TypeName: Query
+      FieldName: getAllFuelCompsuntion
+      DataSourceName: !GetAtt AppSyncRedDataSource.Name
+      RequestMappingTemplate: |
+        {
+            "version": "2018-05-29",
+            "statements": [
+                "select vin, date, fuelconsumption from graph;"
+            ]
+        }
+      ResponseMappingTemplate: |
+        #if($ctx.error)
+            $utils.error($ctx.error.message, $ctx.error.type)
+        #end
+        $utils.toJson($utils.rds.toJsonObject($ctx.result)[0])
+
+
+
+
+
+  # AppSyncDataSourceDataPointGetResolver:
+  #   Type: AWS::AppSync::Resolver
+  #   Properties: 
+  #     ApiId: !GetAtt AppSyncSampleAPI.ApiId
+  #     CodeS3Location: ./appsync/resolvers/baseResolver.js
+  #     FieldName: getDataPoint
+  #     TypeName: Query
+  #     Kind: PIPELINE
+  #     Runtime:
+  #       Name: APPSYNC_JS
+  #       RuntimeVersion: 1.0.0
+  #     PipelineConfig:
+  #       Functions:
+  #            - !GetAtt GetItemFunction.FunctionId
+
+  # HelloWorldFunction:
+  #   Type: AWS::AppSync::FunctionConfiguration
+  #   Properties: 
+  #     ApiId: !GetAtt AppSyncSampleAPI.ApiId
+  #     CodeS3Location: ./lambdas/hello-world/app.js
+  #     DataSourceName: !GetAtt AppSyncNoneDataSource.Name
+  #     Name: HelloWorldFunction
+  #     Runtime:
+  #       Name: APPSYNC_JS
+  #       RuntimeVersion: 1.0.0
+
+  # AppSyncSampleResolver:
+  #   Type: AWS::AppSync::Resolver
+  #   Properties: 
+  #     ApiId: !GetAtt AppSyncSampleAPI.ApiId
+  #     # DataSourceName: !GetAtt AppSyncNoneDataSource.Name
+  #     CodeS3Location: ./appsync/resolvers/mutationCreateDataPoint.js
+  #     FieldName: publish
+  #     TypeName: "Mutation"
+  #     Kind: PIPELINE
+  #     Runtime:
+  #       Name: APPSYNC_JS
+  #       RuntimeVersion: 1.0.0
+  #     PipelineConfig:
+  #       Functions:
+  #            - !GetAtt HelloWorldFunction.FunctionId
+  #     # RequestMappingTemplate: |
+  #     #   {
+  #     #     "version": "2017-02-28",
+  #     #     "payload": {
+  #     #         "name": "$context.arguments.name",
+  #     #         "data": $util.toJson($context.arguments.data)
+  #     #     }
+  #     #   }
+  #     # ResponseMappingTemplate: |
+  #     #   $util.toJson($context.result)
+        
+
+
+Outputs:
+  GraphQLApiId:
+    Description: Unique AWS AppSync GraphQL API Identifier
+    Value: !GetAtt AppSyncSampleAPI.ApiId

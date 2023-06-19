@@ -1,0 +1,261 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: container cluster on ECS, loadbalancer, security groups and cloudwatch
+
+Parameters:
+  VPCID:
+    Type: String
+    Default: vpc-0bb2c243192f84787
+  PrivateSubnetId:
+    Type: String
+    Default: subnet-0726cf0961bf6e7e8
+  PublicSubnetId:
+    Type: String
+    Default: subnet-057e256a473094f52
+  ServiceName:
+    Type: String
+    Default: test-service
+  ImageId:
+    Type: String
+    Default: '327465495978.dkr.ecr.eu-central-1.amazonaws.com/test-aurora:v1'
+
+Resources:
+  
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: 'stw-aws-ecs-microservices'
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Name: ecs-services
+      Subnets: 
+        - !Ref PrivateSubnetId
+        - !Ref PublicSubnetId
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref DefaultTargetGroup
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for loadbalancer to services on ECS
+      VpcId: !Ref VPCID
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: default
+      VpcId: !Ref VPCID
+      Protocol: 'HTTP'
+      Port: '80'  
+
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: 'stw-aws-ecs-microservices-lg'
+      RetentionInDays: 1
+
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup      
+    Properties:
+     VpcId: !Ref VPCID
+     GroupDescription: for ecs containers
+     SecurityGroupIngress:
+       - SourceSecurityGroupId: !Ref 'LoadBalancerSecurityGroup'
+         IpProtocol: -1
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                # ECS Tasks to download images from ECR
+                - 'ecr:GetAuthorizationToken'
+                - 'ecr:BatchCheckLayerAvailability'
+                - 'ecr:GetDownloadUrlForLayer'
+                - 'ecr:BatchGetImage'
+                # ECS tasks to upload logs to CloudWatch
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+
+
+  # CloudFrontDistribution:
+  #   Type: 'AWS::CloudFront::Distribution'
+  #   DependsOn: LoadBalancer
+  #   Properties:
+  #     DistributionConfig:
+  #       Comment: 'Cloudfront Distribution pointing ALB Origin'
+  #       Origins:
+  #         - DomainName: !GetAtt LoadBalancer.DNSName
+  #           Id: !Ref LoadBalancer
+  #           CustomOriginConfig:
+  #             HTTPSPort: 443
+  #             OriginProtocolPolicy: https-only
+  #             OriginSSLProtocols:
+  #               - TLSv1.2
+  #       Enabled: true
+  #       HttpVersion: 'http2'
+  #       DefaultCacheBehavior:
+  #         AllowedMethods:
+  #           - GET
+  #           - HEAD
+  #           - DELETE
+  #           - OPTIONS
+  #           - PATCH
+  #           - POST
+  #           - PUT
+  #         MinTTL: 0
+  #         TargetOriginId: !Ref LoadBalancer
+  #         ForwardedValues:
+  #           QueryString: true
+  #           Headers: []
+  #           Cookies:
+  #             Forward: none
+  #         ViewerProtocolPolicy: https-only
+  #       PriceClass: PriceClass_100
+
+
+  Task:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: stw-aws-ecs-microservices
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: !Sub ${ServiceName}-service
+          Image: !Ref ImageId
+          Cpu: 256
+          Memory: 512
+          PortMappings:
+            - ContainerPort: 4567
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: 'stw-aws-ecs-microservices-lg'
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Sub ${ServiceName}-service
+          Environment: 
+            - Name: LOADBALANCER_URL
+              Value: !GetAtt LoadBalancer.DNSName
+            - Name: SERVICE_NAME
+              Value: !Ref ServiceName
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: ListenerRule
+    Properties:
+      ServiceName: !Sub ${ServiceName}-service
+      TaskDefinition: !Ref Task
+      Cluster: !Ref ECSCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 70
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PrivateSubnetId
+            - !Ref PublicSubnetId
+          SecurityGroups: 
+            - !Ref ContainerSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Sub ${ServiceName}-service
+          ContainerPort: 4567
+          TargetGroupArn: !Ref TargetGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ServiceName}-tg
+      VpcId: !Ref VPCID
+      Port: 80
+      Protocol: HTTP
+      Matcher:
+        HttpCode: 200-299
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /stat
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 10
+      TargetType: ip
+
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref LoadBalancerListener
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - !Sub /${ServiceName}*
+      Actions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+
+
+
+Outputs:
+  
+  Cluster:
+    Value: !Ref ECSCluster
+    Export:
+      Name:  !Sub ${AWS::StackName}-Cluster
+
+  Listener:
+    Description: listener port 80
+    Value: !Ref LoadBalancerListener
+    Export:
+      Name:  !Sub ${AWS::StackName}-Listener
+
+  ContainerSecurityGroup:
+    Description: container security group
+    Value: !Ref ContainerSecurityGroup
+    Export:
+      Name:  !Sub ${AWS::StackName}-ContainerSecurityGroup
+
+  LoadBalancerDNS:
+    Description: Domain name for the loadbalancer
+    Value: !GetAtt LoadBalancer.DNSName
+    Export:
+      Name:  !Sub ${AWS::StackName}-LoadBalancerDNS
+
+  ECSTaskExecutionRoleArn:
+    Description: ECS Task Execution Role
+    Value: !GetAtt 'ECSTaskExecutionRole.Arn'
+    Export:
+      Name: !Sub ${AWS::StackName}-ECSTaskExecutionRole
+
+

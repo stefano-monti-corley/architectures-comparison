@@ -1,0 +1,39 @@
+# More information about the configuration file can be found here:
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "architectures-comparison"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+region = "eu-central-1"
+capabilities = ["CAPABILITY_IAM", "CAPABILITY_AUTO_EXPAND"]
+confirm_changeset = true
+resolve_s3 = true
+parameter_overrides = """ \
+    SubDomain='arch-comp' \
+    PublicHostedZone='lab01.cordev.it' \
+    BucketName='arch-comp.lab01.cordev.it' \
+    Certificate='arn:aws:acm:us-east-1:327465495978:certificate/79c783d9-a9ba-4a77-a214-f2e736b95b7a' \
+    HostedZoneId='Z0794370VT3U3U9OM0F0'
+"""
+
+[default.package.parameters]
+resolve_s3 = true
+
+[default.sync.parameters]
+watch = true
+
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+
+[default.local_start_lambda.parameters]
+warm_containers = "EAGER"
